@@ -230,9 +230,10 @@ def voc_ap(rec, prec):
     return ap
 
 
-def evaluation(pred, gt_path, iou_thresh=0.5):
-    pred = get_preds(pred)
-    norm_score(pred)
+def evaluation(pred, gt_path, iou_thresh=0.5, save=False):
+    if not save:
+        pred = get_preds(pred)
+        norm_score(pred)
     facebox_list, event_list, file_list, hard_gt_list, medium_gt_list, \
         easy_gt_list = get_gt_boxes(gt_path)
     event_num = len(event_list)
@@ -240,6 +241,7 @@ def evaluation(pred, gt_path, iou_thresh=0.5):
     settings = ['easy', 'medium', 'hard']
     setting_gts = [easy_gt_list, medium_gt_list, hard_gt_list]
     aps = []
+    widerface_gt = {'easy': {}, 'medium': {}, 'hard': {}}
     for setting_id in range(3):
         # different setting
         gt_list = setting_gts[setting_id]
@@ -251,43 +253,56 @@ def evaluation(pred, gt_path, iou_thresh=0.5):
             pbar.set_description('Processing {}'.format(settings[setting_id]))
             event_name = str(event_list[i][0][0])
             img_list = file_list[i][0]
-            pred_list = pred[event_name]
+            if not save:
+                pred_list = pred[event_name]
             sub_gt_list = gt_list[i][0]
             # img_pr_info_list = np.zeros((len(img_list), thresh_num, 2))
             gt_bbx_list = facebox_list[i][0]
 
             for j in range(len(img_list)):
-                pred_info = pred_list[str(img_list[j][0][0])]
+                if not save:
+                    pred_info = pred_list[str(img_list[j][0][0])]
 
                 gt_boxes = gt_bbx_list[j][0].astype('float')
                 keep_index = sub_gt_list[j][0]
                 count_face += len(keep_index)
 
-                if len(gt_boxes) == 0 or len(pred_info) == 0:
-                    continue
-                ignore = np.zeros(gt_boxes.shape[0])
-                if len(keep_index) != 0:
-                    ignore[keep_index-1] = 1
-                pred_recall, proposal_list = image_eval(
-                    pred_info, gt_boxes, ignore, iou_thresh)
+                if str(img_list[j][0][0]) not in widerface_gt[settings[setting_id]]:
+                    widerface_gt[settings[setting_id]][str(img_list[j][0][0])] = []
+                widerface_gt[settings[setting_id]][str(img_list[j][0][0])] = keep_index
 
-                _img_pr_info = img_pr_info(thresh_num, pred_info,
-                                           proposal_list, pred_recall)
+                if not save:
+                    if len(gt_boxes) == 0 or len(pred_info) == 0:
+                        continue
+                    ignore = np.zeros(gt_boxes.shape[0])
+                    if len(keep_index) != 0:
+                        ignore[keep_index-1] = 1
+                    pred_recall, proposal_list = image_eval(
+                        pred_info, gt_boxes, ignore, iou_thresh)
 
-                pr_curve += _img_pr_info
-        pr_curve = dataset_pr_info(thresh_num, pr_curve, count_face)
+                    _img_pr_info = img_pr_info(thresh_num, pred_info,
+                                               proposal_list, pred_recall)
 
-        propose = pr_curve[:, 0]
-        recall = pr_curve[:, 1]
+                    pr_curve += _img_pr_info
 
-        ap = voc_ap(recall, propose)
-        aps.append(ap)
+        if not save:
+            pr_curve = dataset_pr_info(thresh_num, pr_curve, count_face)
 
-    print("==================== Results ====================")
-    print("Easy   Val AP: {}".format(aps[0]))
-    print("Medium Val AP: {}".format(aps[1]))
-    print("Hard   Val AP: {}".format(aps[2]))
-    print("=================================================")
+            propose = pr_curve[:, 0]
+            recall = pr_curve[:, 1]
+
+            ap = voc_ap(recall, propose)
+            aps.append(ap)
+
+    if save:
+        with open('./ground_truth/widerface_gt.pickle', 'wb') as handle:
+            pickle.dump(widerface_gt, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    else:
+        print("==================== Results ====================")
+        print("Easy   Val AP: {}".format(aps[0]))
+        print("Medium Val AP: {}".format(aps[1]))
+        print("Hard   Val AP: {}".format(aps[2]))
+        print("=================================================")
 
 
 if __name__ == '__main__':
@@ -297,16 +312,4 @@ if __name__ == '__main__':
     parser.add_argument('-g', '--gt', default='./ground_truth/')
 
     args = parser.parse_args()
-    evaluation(args.pred, args.gt)
-
-
-
-
-
-
-
-
-
-
-
-
+    evaluation(args.pred, args.gt, save=True)

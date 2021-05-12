@@ -199,6 +199,31 @@ class ClassHead(tf.keras.layers.Layer):
         return tf.reshape(x, [-1, h * w * self.num_anchor, 2])
 
 
+def pred_to_outputs(cfg, output, inp_shape, iou_th=0.4, score_th=0.02):
+
+  bbox_regressions, landm_regressions, classifications = output
+
+  # only for batch size 1
+  preds = tf.concat(  # [bboxes, landms, landms_valid, conf]
+      [
+          bbox_regressions[0], landm_regressions[0],
+          tf.ones_like(classifications[0, :, 0][..., tf.newaxis]),
+          classifications[0, :, 1][..., tf.newaxis]
+      ], 1)
+  priors = prior_box_tf((inp_shape[1], inp_shape[2]), cfg['min_sizes'], cfg['steps'], cfg['clip'])
+  decode_preds = decode_tf(preds, priors, cfg['variances'])
+
+  selected_indices = tf.image.non_max_suppression(boxes=decode_preds[:, :4],
+                                                  scores=decode_preds[:, -1],
+                                                  max_output_size=tf.shape(decode_preds)[0],
+                                                  iou_threshold=iou_th,
+                                                  score_threshold=score_th)
+
+  out = tf.gather(decode_preds, selected_indices)
+
+  return out
+
+
 def RetinaFaceModel(cfg, training=False, iou_th=0.4, score_th=0.02,
                     name='RetinaFaceModel'):
     """Retina Face Model"""
