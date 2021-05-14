@@ -179,7 +179,8 @@ def labels_to_boxes(labels):
 class WiderFaceEval(object):
 
   def __init__(self, split, thresh_num=1000, iou_thresh=0.5):
-    with open('./widerface_evaluate/ground_truth/widerface_gt.pickle', 'rb') as handle:
+    src_path = os.path.dirname(os.path.abspath(__file__)) + '/../'
+    with open(os.path.join(src_path, './widerface_evaluate/ground_truth/widerface_gt.pickle'), 'rb') as handle:
       widerface_gt = pickle.load(handle)
 
     self.split = split

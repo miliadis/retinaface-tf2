@@ -1,8 +1,8 @@
 from absl import app, flags, logging
-from absl.flags import FLAGS
 import os
 import random
 import time
+import argparse
 import numpy as np
 import tensorflow as tf
 
@@ -14,13 +14,6 @@ from modules.utils import (ProgressBar, WiderFaceEval, labels_to_boxes, load_dat
                            pad_input_image, recover_pad_output, set_memory_growth)
 
 
-flags.DEFINE_string('dataset_root', '/data', 'dataset root')
-flags.DEFINE_string('output_path', '/checkpoints', 'output path for checkpoints and logs')
-flags.DEFINE_string('cfg_path', './configs/retinaface_res50.yaml',
-                    'config file path')
-flags.DEFINE_string('gpu', '0', 'which gpu to use')
-
-
 def reset_random_seeds():
   os.environ['PYTHONHASHSEED'] = str(2)
   tf.random.set_seed(2)
@@ -28,21 +21,18 @@ def reset_random_seeds():
   random.seed(2)
 
 
-def main(_):
+def train_retinaface(cfg):
 
     reset_random_seeds()
 
     # init
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-    os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
     logger = tf.get_logger()
     logger.disabled = True
     logger.setLevel(logging.FATAL)
     set_memory_growth()
-
-    cfg = load_yaml(FLAGS.cfg_path)
-    cfg['dataset_root'] = FLAGS.dataset_root
 
     # define network
     model = RetinaFaceModel(cfg, training=True)
@@ -72,7 +62,7 @@ def main(_):
     multi_box_loss = MultiBoxLoss()
 
     # load checkpoint
-    checkpoint_dir = os.path.join(FLAGS.output_path, 'checkpoints', cfg['sub_name'])
+    checkpoint_dir = os.path.join(cfg['output_path'], 'checkpoints', cfg['sub_name'])
     checkpoint = tf.train.Checkpoint(epoch=tf.Variable(0, name='epoch'),
                                      optimizer=optimizer,
                                      model=model)
@@ -132,7 +122,7 @@ def main(_):
         return pred_boxes
 
     # training loop
-    summary_writer = tf.summary.create_file_writer(os.path.join(FLAGS.output_path, 'logs', cfg['sub_name']))
+    summary_writer = tf.summary.create_file_writer(os.path.join(cfg['output_path'], 'logs', cfg['sub_name']))
     prog_bar = ProgressBar(steps_per_epoch, 0)
 
     if cfg['evaluation_during_training']:
@@ -190,5 +180,23 @@ def main(_):
         manager.latest_checkpoint))
 
 
+def get_args():
+  parser = argparse.ArgumentParser(
+      description='RetinaFace train')
+  parser.add_argument('--dataset_root', required=True, help='Dataset path', type=str)
+  parser.add_argument('--output_path', required=True, help='Output path', type=str)
+  parser.add_argument('--cfg_path', required=True, help='Config file path', type=str)
+  args = parser.parse_args()
+
+  return args
+
+
 if __name__ == '__main__':
-    app.run(main)
+  args = get_args()
+  cfg = load_yaml(args.cfg_path)
+  cfg['dataset_root'] = args.dataset_root
+  cfg['output_path'] = args.output_path
+
+  train_retinaface(cfg)
+
+
