@@ -1,15 +1,11 @@
-import pickle
 import cv2
 import yaml
 import sys
 import time
-import os
 import numpy as np
 import tensorflow as tf
 from absl import logging
 from modules.dataset import load_tfrecord_dataset
-from widerface_evaluate.evaluation import (dataset_pr_info, image_eval, img_pr_info, voc_ap)
-
 
 def load_yaml(load_path):
     """load yaml file"""
@@ -174,56 +170,6 @@ def labels_to_boxes(labels):
   gt_boxes[:, 2] = gt_boxes[:, 2] - gt_boxes[:, 0]  # width
   gt_boxes[:, 3] = gt_boxes[:, 3] - gt_boxes[:, 1]  # height
   return gt_boxes
-
-
-class WiderFaceEval(object):
-
-  def __init__(self, split, thresh_num=1000, iou_thresh=0.5):
-    src_path = os.path.dirname(os.path.abspath(__file__)) + '/../'
-    with open(os.path.join(src_path, './widerface_evaluate/ground_truth/widerface_gt.pickle'), 'rb') as handle:
-      widerface_gt = pickle.load(handle)
-
-    self.split = split
-    self.widerface = widerface_gt
-    self.count_face = 0
-    self.pr_curve = np.zeros((thresh_num, 2)).astype('float')
-
-    self.iou_thresh = iou_thresh
-    self.thresh_num = thresh_num
-
-  def update(self, outputs, gt, img_name):
-
-    pred_info = outputs
-
-    gt_boxes = gt
-    keep_index = self.widerface[self.split][img_name]
-    self.count_face += len(keep_index)
-
-    if len(gt_boxes) == 0 or len(pred_info) == 0:
-      return
-    ignore = np.zeros(gt_boxes.shape[0])
-    if len(keep_index) != 0:
-      ignore[keep_index - 1] = 1
-    pred_recall, proposal_list = image_eval(pred_info, gt_boxes, ignore, self.iou_thresh)
-
-    _img_pr_info = img_pr_info(self.thresh_num, pred_info, proposal_list, pred_recall)
-
-    self.pr_curve += _img_pr_info
-
-  def calculate_ap(self):
-
-    pr_curve = dataset_pr_info(self.thresh_num, self.pr_curve, self.count_face)
-
-    propose = pr_curve[:, 0]
-    recall = pr_curve[:, 1]
-
-    ap = voc_ap(recall, propose)
-
-    return ap
-
-  def reset(self):
-    self.count_face = 0
-    self.pr_curve = np.zeros((self.thresh_num, 2)).astype('float')
 
 
 ###############################################################################

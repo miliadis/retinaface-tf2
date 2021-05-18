@@ -10,8 +10,9 @@ from modules.models import RetinaFaceModel, pred_to_outputs
 from modules.lr_scheduler import MultiStepWarmUpLR
 from modules.losses import MultiBoxLoss
 from modules.anchor import prior_box
-from modules.utils import (ProgressBar, WiderFaceEval, labels_to_boxes, load_dataset, load_yaml,
+from modules.utils import (ProgressBar, labels_to_boxes, load_dataset, load_yaml,
                            pad_input_image, recover_pad_output, set_memory_growth)
+from widerface_evaluate.evaluation import WiderFaceEval
 
 
 def reset_random_seeds():
