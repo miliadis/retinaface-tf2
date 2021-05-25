@@ -153,7 +153,10 @@ def train_retinaface(cfg):
             if cfg['evaluation_during_training']:
                 # Run a validation loop at the end of each epoch.
                 for ii, (x_batch_val, y_batch_val, img_name) in enumerate(val_dataset.take(500)):
-                    img_name = img_name.numpy()[0].decode().split('/')[1].split('.')[0]
+                    if '/' in img_name.numpy()[0].decode():
+                        img_name = img_name.numpy()[0].decode().split('/')[1].split('.')[0]
+                    else:
+                        img_name = []
                     pred_boxes = test_step(x_batch_val, img_name)
                     gt_boxes = labels_to_boxes(y_batch_val)
                     widerface_eval_hard.update(pred_boxes, gt_boxes, img_name)

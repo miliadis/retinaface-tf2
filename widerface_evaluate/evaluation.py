@@ -33,7 +33,10 @@ class WiderFaceEval(object):
     pred_info = outputs
 
     gt_boxes = gt
-    keep_index = self.widerface[self.split][img_name]
+    if img_name:
+        keep_index = self.widerface[self.split][img_name]
+    else:
+        keep_index = np.arange(len(gt_boxes)) + 1
     self.count_face += len(keep_index)
 
     if len(gt_boxes) == 0 or len(pred_info) == 0:

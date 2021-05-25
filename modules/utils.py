@@ -43,7 +43,7 @@ def load_dataset(cfg, priors, split):
     using_distort = cfg['using_distort']
     using_encoding = True
     buffer_size = 4000
-    number_cycles = 2
+    number_cycles = cfg['number_cycles']
     threads = tf.data.experimental.AUTOTUNE
   else:
     batch_size = 1
