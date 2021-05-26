@@ -28,9 +28,9 @@ class WiderFaceEval(object):
     self.iou_thresh = iou_thresh
     self.thresh_num = thresh_num
 
-  def update(self, outputs, gt, img_name):
+  def update(self, output, gt, img_name):
 
-    pred_info = outputs
+    pred_info = output
 
     gt_boxes = gt
     if img_name:

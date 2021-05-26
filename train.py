@@ -24,16 +24,23 @@ def reset_random_seeds():
 
 def train_retinaface(cfg):
 
-    reset_random_seeds()
-
     # init
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+
+    if cfg['distributed']:
+        import horovod.tensorflow as hvd
+        # Initialize Horovod
+        hvd.init()
+    else:
+        hvd = []
+        os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+
+    reset_random_seeds()
 
     logger = tf.get_logger()
     logger.disabled = True
     logger.setLevel(logging.FATAL)
-    set_memory_growth()
+    set_memory_growth(hvd)
 
     # define network
     model = RetinaFaceModel(cfg, training=True)
@@ -56,6 +63,10 @@ def train_retinaface(cfg):
         lr_rate=cfg['lr_rate'],
         warmup_steps=cfg['warmup_epoch'] * steps_per_epoch,
         min_lr=cfg['min_lr'])
+
+    if cfg['distributed']:
+        learning_rate = learning_rate * hvd.size()
+
     optimizer = tf.keras.optimizers.SGD(
         learning_rate=learning_rate, momentum=0.9, nesterov=True)
 
@@ -78,7 +89,7 @@ def train_retinaface(cfg):
 
     # define training step function
     @tf.function
-    def train_step(inputs, labels):
+    def train_step(inputs, labels, first_batch):
         with tf.GradientTape() as tape:
             predictions = model(inputs, training=True)
 
@@ -88,8 +99,16 @@ def train_retinaface(cfg):
                 multi_box_loss(labels, predictions)
             total_loss = tf.add_n([l for l in losses.values()])
 
+        if cfg['distributed']:
+            # Horovod: add Horovod Distributed GradientTape.
+            tape = hvd.DistributedGradientTape(tape)
+
         grads = tape.gradient(total_loss, model.trainable_variables)
         optimizer.apply_gradients(zip(grads, model.trainable_variables))
+
+        if cfg['distributed'] and first_batch:
+            hvd.broadcast_variables(model.variables, root_rank=0)
+            hvd.broadcast_variables(optimizer.variables(), root_rank=0)
 
         return total_loss, losses
 
@@ -123,8 +142,8 @@ def train_retinaface(cfg):
         return pred_boxes
 
     # training loop
-    summary_writer = tf.summary.create_file_writer(os.path.join(cfg['output_path'], 'logs', cfg['sub_name']))
-    prog_bar = ProgressBar(steps_per_epoch, 0)
+    # summary_writer = tf.summary.create_file_writer(os.path.join(cfg['output_path'], 'logs', cfg['sub_name']))
+    # prog_bar = ProgressBar(steps_per_epoch, 0)
 
     if cfg['evaluation_during_training']:
         widerface_eval_hard = WiderFaceEval(split='hard')
@@ -136,23 +155,36 @@ def train_retinaface(cfg):
             checkpoint.epoch.assign_add(1)
             start_time = time.time()
 
-            # Iterate over the batches of the dataset.
-            for step, (x_batch_train, y_batch_train, img_name) in enumerate(train_dataset):
-                total_loss, losses = train_step(x_batch_train, y_batch_train)
+            if cfg['distributed']:
+                train_dataset = train_dataset.take(cfg['dataset_len'] // hvd.size())
 
-                prog_bar.update("epoch={}/{}, loss={:.4f}, lr={:.1e}".format(
-                    checkpoint.epoch.numpy(), cfg['epoch'], total_loss.numpy(), optimizer._decayed_lr(tf.float32)))
+            # Iterate over the batches of the dataset.
+            # for batch, (x_batch_train, y_batch_train, img_name) in enumerate(train_dataset):
+            #     total_loss, losses = train_step(x_batch_train, y_batch_train, batch == 0)
+            #
+            #     if cfg['distributed']:
+            #         if hvd.local_rank() == 0:
+            #             prog_bar.update("epoch={}/{}, loss={:.4f}, lr={:.1e}".format(
+            #                 checkpoint.epoch.numpy(), cfg['epoch'], total_loss.numpy(), optimizer._decayed_lr(tf.float32)))
+            #     else:
+            #         prog_bar.update("epoch={}/{}, loss={:.4f}, lr={:.1e}".format(
+            #             checkpoint.epoch.numpy(), cfg['epoch'], total_loss.numpy(), optimizer._decayed_lr(tf.float32)))
 
             # Display metrics at the end of each epoch.
             # train_acc = train_acc_metric.result()
             # print("\nTraining loss over epoch: %.4f" % (float(total_loss.numpy()),))
 
-            manager.save()
-            print("\n[*] save ckpt file at {}".format(manager.latest_checkpoint))
+            # if cfg['distributed']:
+            #     if hvd.rank() == 0:
+            #         manager.save()
+            #         print("\n[*] save ckpt file at {}".format(manager.latest_checkpoint))
+            # else:
+            #     manager.save()
+            #     print("\n[*] save ckpt file at {}".format(manager.latest_checkpoint))
 
             if cfg['evaluation_during_training']:
                 # Run a validation loop at the end of each epoch.
-                for ii, (x_batch_val, y_batch_val, img_name) in enumerate(val_dataset.take(500)):
+                for batch, (x_batch_val, y_batch_val, img_name) in enumerate(val_dataset.take(500)):
                     if '/' in img_name.numpy()[0].decode():
                         img_name = img_name.numpy()[0].decode().split('/')[1].split('.')[0]
                     else:
@@ -165,23 +197,36 @@ def train_retinaface(cfg):
                 widerface_eval_hard.reset()
                 print("Validation acc: %.4f" % (float(ap_hard),))
 
-            with summary_writer.as_default():
-                tf.summary.scalar('loss/total_loss', total_loss, step=actual_epoch)
-                for k, l in losses.items():
-                    tf.summary.scalar('loss/{}'.format(k), l, step=actual_epoch)
-                tf.summary.scalar('learning_rate', optimizer._decayed_lr(tf.float32), step=actual_epoch)
-                if cfg['evaluation_during_training']:
-                    tf.summary.scalar('Val AP', ap_hard, step=actual_epoch)
+            def tensorboard_writer():
+                with summary_writer.as_default():
+                    tf.summary.scalar('loss/total_loss', total_loss, step=actual_epoch)
+                    for k, l in losses.items():
+                        tf.summary.scalar('loss/{}'.format(k), l, step=actual_epoch)
+                    tf.summary.scalar('learning_rate', optimizer._decayed_lr(tf.float32), step=actual_epoch)
+                    if cfg['evaluation_during_training']:
+                        tf.summary.scalar('Val AP', ap_hard, step=actual_epoch)
 
-            print("Time taken: %.2fs" % (time.time() - start_time))
+            # if cfg['distributed']:
+            #     if hvd.rank() == 0:
+            #         tensorboard_writer()
+            #         print("Time taken: %.2fs" % (time.time() - start_time))
+            # else:
+            #     tensorboard_writer()
+            #     print("Time taken: %.2fs" % (time.time() - start_time))
 
         except Exception as E:
             print(E)
             continue
 
-    manager.save()
-    print("\n[*] training done! save ckpt file at {}".format(
-        manager.latest_checkpoint))
+    # if cfg['distributed']:
+    #     if hvd.rank() == 0:
+    #         manager.save()
+    #         print("\n[*] training done! save ckpt file at {}".format(
+    #             manager.latest_checkpoint))
+    # else:
+    #     manager.save()
+    #     print("\n[*] training done! save ckpt file at {}".format(
+    #         manager.latest_checkpoint))
 
 
 def get_args():

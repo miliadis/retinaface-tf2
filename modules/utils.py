@@ -15,7 +15,7 @@ def load_yaml(load_path):
     return loaded
 
 
-def set_memory_growth():
+def set_memory_growth(hvd):
     gpus = tf.config.experimental.list_physical_devices('GPU')
     if gpus:
         try:
@@ -27,6 +27,8 @@ def set_memory_growth():
                 logging.info(
                     "Detect {} Physical GPUs, {} Logical GPUs.".format(
                         len(gpus), len(logical_gpus)))
+            if hvd:
+                tf.config.experimental.set_visible_devices(gpus[hvd.local_rank()], 'GPU')
         except RuntimeError as e:
             # Memory growth must be set before GPUs have been initialized
             logging.info(e)
