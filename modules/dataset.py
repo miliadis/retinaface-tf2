@@ -118,6 +118,7 @@ def load_tfrecord_dataset(dataset_root,
                       number_cycles,
                       batch_size,
                       img_dim,
+                      hvd,
                       using_bin=True,
                       using_flip=True,
                       using_distort=True,
@@ -136,6 +137,11 @@ def load_tfrecord_dataset(dataset_root,
   files = tf.io.matching_files(dataset_path + '*.records')
   raw_dataset = tf.data.Dataset.from_tensor_slices(files)
 
+  if hvd:
+    raw_dataset = raw_dataset.shard(num_shards=hvd.size(), index=hvd.rank())
+
+  raw_dataset = raw_dataset.repeat(1)
+
   if shuffle:
     raw_dataset = raw_dataset.shuffle(tf.shape(files)[0].numpy(),)
 
@@ -152,10 +158,7 @@ def load_tfrecord_dataset(dataset_root,
       [tf.float32, tf.float32, tf.string]),
                             num_parallel_calls=threads)
 
-  dataset = dataset.repeat(1)
-
   dataset = dataset.batch(batch_size, drop_remainder=True)
-  dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
 
   return dataset
 

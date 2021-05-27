@@ -2,9 +2,9 @@
 batch_size: 8
 input_size: 640
 backbone_type: 'ResNet50'  # 'ResNet50', 'MobileNetV2'
-sub_name: 'retinaface_res50_original_repo'
-evaluation_during_training: True
-distributed: False
+sub_name: 'retinaface_res50_widerface_distributed'
+evaluation_during_training: False
+distributed: True
 
 # training dataset
 dataset_name: 'wider_face_correct'
@@ -13,7 +13,7 @@ dataset_len: 12880  # number of training samples
 using_bin: True
 using_flip: True
 using_distort: True
-number_cycles: 1
+number_cycles: 4
 
 # network
 out_channel: 256

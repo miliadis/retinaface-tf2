@@ -22,11 +22,6 @@ def set_memory_growth(hvd):
             # Currently, memory growth needs to be the same across GPUs
             for gpu in gpus:
                 tf.config.experimental.set_memory_growth(gpu, True)
-                logical_gpus = tf.config.experimental.list_logical_devices(
-                    'GPU')
-                logging.info(
-                    "Detect {} Physical GPUs, {} Logical GPUs.".format(
-                        len(gpus), len(logical_gpus)))
             if hvd:
                 tf.config.experimental.set_visible_devices(gpus[hvd.local_rank()], 'GPU')
         except RuntimeError as e:
@@ -34,7 +29,7 @@ def set_memory_growth(hvd):
             logging.info(e)
 
 
-def load_dataset(cfg, priors, split):
+def load_dataset(cfg, priors, split, hvd):
   """load dataset"""
   logging.info("load dataset from {}".format(cfg['dataset_root']))
 
@@ -62,6 +57,7 @@ def load_dataset(cfg, priors, split):
                               threads=threads,
                               number_cycles=number_cycles,
                               batch_size=batch_size,
+                              hvd=hvd,
                               img_dim=cfg['input_size'],
                               using_bin=cfg['using_bin'],
                               using_flip=using_flip,

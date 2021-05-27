@@ -51,21 +51,23 @@ def train_retinaface(cfg):
                        cfg['min_sizes'],  cfg['steps'], cfg['clip'])
 
     # load dataset
-    train_dataset = load_dataset(cfg, priors, 'train')
+    train_dataset = load_dataset(cfg, priors, 'train', hvd)
     if cfg['evaluation_during_training']:
-        val_dataset = load_dataset(cfg, priors, 'val')
+        val_dataset = load_dataset(cfg, priors, 'val', hvd)
 
     # define optimizer
     steps_per_epoch = cfg['dataset_len'] // cfg['batch_size']
+    if cfg['distributed']:
+        init_lr = cfg['init_lr'] * hvd.size()
+    else:
+        init_lr = cfg['init_lr']
+
     learning_rate = MultiStepWarmUpLR(
-        initial_learning_rate=cfg['init_lr'],
+        initial_learning_rate=init_lr,
         lr_steps=[e * steps_per_epoch for e in cfg['lr_decay_epoch']],
         lr_rate=cfg['lr_rate'],
         warmup_steps=cfg['warmup_epoch'] * steps_per_epoch,
         min_lr=cfg['min_lr'])
-
-    if cfg['distributed']:
-        learning_rate = learning_rate * hvd.size()
 
     optimizer = tf.keras.optimizers.SGD(
         learning_rate=learning_rate, momentum=0.9, nesterov=True)
@@ -141,9 +143,9 @@ def train_retinaface(cfg):
 
         return pred_boxes
 
-    # training loop
-    # summary_writer = tf.summary.create_file_writer(os.path.join(cfg['output_path'], 'logs', cfg['sub_name']))
-    # prog_bar = ProgressBar(steps_per_epoch, 0)
+    #training loop
+    summary_writer = tf.summary.create_file_writer(os.path.join(cfg['output_path'], 'logs', cfg['sub_name']))
+    prog_bar = ProgressBar(steps_per_epoch, 0)
 
     if cfg['evaluation_during_training']:
         widerface_eval_hard = WiderFaceEval(split='hard')
@@ -155,32 +157,29 @@ def train_retinaface(cfg):
             checkpoint.epoch.assign_add(1)
             start_time = time.time()
 
-            if cfg['distributed']:
-                train_dataset = train_dataset.take(cfg['dataset_len'] // hvd.size())
+            #Iterate over the batches of the dataset.
+            for batch, (x_batch_train, y_batch_train, img_name) in enumerate(train_dataset):
+                total_loss, losses = train_step(x_batch_train, y_batch_train, batch == 0)
 
-            # Iterate over the batches of the dataset.
-            # for batch, (x_batch_train, y_batch_train, img_name) in enumerate(train_dataset):
-            #     total_loss, losses = train_step(x_batch_train, y_batch_train, batch == 0)
-            #
-            #     if cfg['distributed']:
-            #         if hvd.local_rank() == 0:
-            #             prog_bar.update("epoch={}/{}, loss={:.4f}, lr={:.1e}".format(
-            #                 checkpoint.epoch.numpy(), cfg['epoch'], total_loss.numpy(), optimizer._decayed_lr(tf.float32)))
-            #     else:
-            #         prog_bar.update("epoch={}/{}, loss={:.4f}, lr={:.1e}".format(
-            #             checkpoint.epoch.numpy(), cfg['epoch'], total_loss.numpy(), optimizer._decayed_lr(tf.float32)))
+                if cfg['distributed']:
+                    if hvd.local_rank() == 0:
+                        prog_bar.update("epoch={}/{}, loss={:.4f}, lr={:.1e}".format(
+                            checkpoint.epoch.numpy(), cfg['epoch'], total_loss.numpy(), optimizer._decayed_lr(tf.float32)))
+                else:
+                    prog_bar.update("epoch={}/{}, loss={:.4f}, lr={:.1e}".format(
+                        checkpoint.epoch.numpy(), cfg['epoch'], total_loss.numpy(), optimizer._decayed_lr(tf.float32)))
 
             # Display metrics at the end of each epoch.
             # train_acc = train_acc_metric.result()
             # print("\nTraining loss over epoch: %.4f" % (float(total_loss.numpy()),))
 
-            # if cfg['distributed']:
-            #     if hvd.rank() == 0:
-            #         manager.save()
-            #         print("\n[*] save ckpt file at {}".format(manager.latest_checkpoint))
-            # else:
-            #     manager.save()
-            #     print("\n[*] save ckpt file at {}".format(manager.latest_checkpoint))
+            if cfg['distributed']:
+                if hvd.rank() == 0:
+                    manager.save()
+                    print("\n[*] save ckpt file at {}".format(manager.latest_checkpoint))
+            else:
+                manager.save()
+                print("\n[*] save ckpt file at {}".format(manager.latest_checkpoint))
 
             if cfg['evaluation_during_training']:
                 # Run a validation loop at the end of each epoch.
@@ -206,27 +205,27 @@ def train_retinaface(cfg):
                     if cfg['evaluation_during_training']:
                         tf.summary.scalar('Val AP', ap_hard, step=actual_epoch)
 
-            # if cfg['distributed']:
-            #     if hvd.rank() == 0:
-            #         tensorboard_writer()
-            #         print("Time taken: %.2fs" % (time.time() - start_time))
-            # else:
-            #     tensorboard_writer()
-            #     print("Time taken: %.2fs" % (time.time() - start_time))
+            if cfg['distributed']:
+                if hvd.rank() == 0:
+                    tensorboard_writer()
+                    print("Time taken: %.2fs" % (time.time() - start_time))
+            else:
+                tensorboard_writer()
+                print("Time taken: %.2fs" % (time.time() - start_time))
 
         except Exception as E:
             print(E)
             continue
 
-    # if cfg['distributed']:
-    #     if hvd.rank() == 0:
-    #         manager.save()
-    #         print("\n[*] training done! save ckpt file at {}".format(
-    #             manager.latest_checkpoint))
-    # else:
-    #     manager.save()
-    #     print("\n[*] training done! save ckpt file at {}".format(
-    #         manager.latest_checkpoint))
+    if cfg['distributed']:
+        if hvd.rank() == 0:
+            manager.save()
+            print("\n[*] training done! save ckpt file at {}".format(
+                manager.latest_checkpoint))
+    else:
+        manager.save()
+        print("\n[*] training done! save ckpt file at {}".format(
+            manager.latest_checkpoint))
 
 
 def get_args():
