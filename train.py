@@ -53,7 +53,7 @@ def train_retinaface(cfg):
     # load dataset
     train_dataset = load_dataset(cfg, priors, 'train', hvd)
     if cfg['evaluation_during_training']:
-        val_dataset = load_dataset(cfg, priors, 'val', hvd)
+        val_dataset = load_dataset(cfg, priors, 'val', [])
 
     # define optimizer
     steps_per_epoch = cfg['dataset_len'] // cfg['batch_size']
@@ -91,7 +91,7 @@ def train_retinaface(cfg):
 
     # define training step function
     @tf.function
-    def train_step(inputs, labels, first_batch):
+    def train_step(inputs, labels, first_batch, epoch):
         with tf.GradientTape() as tape:
             predictions = model(inputs, training=True)
 
@@ -108,7 +108,7 @@ def train_retinaface(cfg):
         grads = tape.gradient(total_loss, model.trainable_variables)
         optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
-        if cfg['distributed'] and first_batch:
+        if cfg['distributed'] and first_batch and epoch:
             hvd.broadcast_variables(model.variables, root_rank=0)
             hvd.broadcast_variables(optimizer.variables(), root_rank=0)
 
@@ -159,7 +159,7 @@ def train_retinaface(cfg):
 
             #Iterate over the batches of the dataset.
             for batch, (x_batch_train, y_batch_train, img_name) in enumerate(train_dataset):
-                total_loss, losses = train_step(x_batch_train, y_batch_train, batch == 0)
+                total_loss, losses = train_step(x_batch_train, y_batch_train, batch == 0, epoch == 0)
 
                 if cfg['distributed']:
                     if hvd.local_rank() == 0:
