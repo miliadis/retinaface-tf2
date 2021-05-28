@@ -3,7 +3,7 @@ batch_size: 8
 input_size: 640
 backbone_type: 'ResNet50'  # 'ResNet50', 'MobileNetV2'
 sub_name: 'retinaface_res50_widerface_distributed'
-evaluation_during_training: True
+evaluation_during_training: False
 distributed: True
 
 # training dataset
