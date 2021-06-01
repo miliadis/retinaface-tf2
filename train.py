@@ -53,7 +53,7 @@ def train_retinaface(cfg):
     # load dataset
     train_dataset = load_dataset(cfg, priors, 'train', hvd)
     if cfg['evaluation_during_training']:
-        val_dataset = load_dataset(cfg, priors, 'val', [])
+        val_dataset = load_dataset(cfg, priors, 'val', hvd)
 
     # define optimizer
     steps_per_epoch = cfg['dataset_len'] // cfg['batch_size']
