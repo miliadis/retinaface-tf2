@@ -39,7 +39,7 @@ def load_dataset(cfg, priors, split, hvd):
     using_flip = cfg['using_flip']
     using_distort = cfg['using_distort']
     using_encoding = True
-    buffer_size = 4000
+    buffer_size = 2000
     number_cycles = cfg['number_cycles']
     threads = tf.data.experimental.AUTOTUNE
   else:
@@ -48,7 +48,7 @@ def load_dataset(cfg, priors, split, hvd):
     using_flip = False
     using_distort = False
     using_encoding = False
-    buffer_size = 4000
+    buffer_size = 2000
     number_cycles = 1
     threads = tf.data.experimental.AUTOTUNE
 

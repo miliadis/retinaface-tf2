@@ -59,15 +59,19 @@ def train_retinaface(cfg):
     steps_per_epoch = cfg['dataset_len'] // cfg['batch_size']
     if cfg['distributed']:
         init_lr = cfg['init_lr'] * hvd.size()
+        min_lr = cfg['min_lr'] * hvd.size()
+        steps_per_epoch = cfg['dataset_len'] // (cfg['batch_size'] * hvd.size())
     else:
         init_lr = cfg['init_lr']
+        min_lr = cfg['min_lr']
+        steps_per_epoch = cfg['dataset_len'] // cfg['batch_size']
 
     learning_rate = MultiStepWarmUpLR(
         initial_learning_rate=init_lr,
         lr_steps=[e * steps_per_epoch for e in cfg['lr_decay_epoch']],
         lr_rate=cfg['lr_rate'],
         warmup_steps=cfg['warmup_epoch'] * steps_per_epoch,
-        min_lr=cfg['min_lr'])
+        min_lr=min_lr)
 
     optimizer = tf.keras.optimizers.SGD(
         learning_rate=learning_rate, momentum=0.9, nesterov=True)
@@ -172,8 +176,8 @@ def train_retinaface(cfg):
                         # prog_bar.update("epoch={}/{}, loss={:.4f}, lr={:.1e}".format(
                         #     checkpoint.epoch.numpy(), cfg['epoch'], total_loss.numpy(), optimizer._decayed_lr(tf.float32)))
                         if batch % 100 == 0:
-                            print("epoch={}/{}, loss={:.4f}, lr={:.1e}".format(
-                                checkpoint.epoch.numpy(), cfg['epoch'], total_loss.numpy(), optimizer._decayed_lr(tf.float32)))
+                            print("batch={}/{},  epoch={}/{}, loss={:.4f}, lr={:.1e}".format(
+                                batch, steps_per_epoch, checkpoint.epoch.numpy(), cfg['epoch'], total_loss.numpy(), optimizer._decayed_lr(tf.float32)))
                 else:
                     prog_bar.update("epoch={}/{}, loss={:.4f}, lr={:.1e}".format(
                         checkpoint.epoch.numpy(), cfg['epoch'], total_loss.numpy(), optimizer._decayed_lr(tf.float32)))
