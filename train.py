@@ -53,7 +53,7 @@ def train_retinaface(cfg):
     # load dataset
     train_dataset = load_dataset(cfg, priors, 'train', hvd)
     if cfg['evaluation_during_training']:
-        val_dataset = load_dataset(cfg, priors, 'val', hvd)
+        val_dataset = load_dataset(cfg, priors, 'val', [])
 
     # define optimizer
     steps_per_epoch = cfg['dataset_len'] // cfg['batch_size']
@@ -153,7 +153,13 @@ def train_retinaface(cfg):
     for epoch in range(cfg['epoch']):
         try:
             actual_epoch = epoch + 1
-            print("\nStart of epoch %d" % (actual_epoch,))
+
+            if cfg['distributed']:
+                if hvd.rank() == 0:
+                    print("\nStart of epoch %d" % (actual_epoch,))
+            else:
+                print("\nStart of epoch %d" % (actual_epoch,))
+
             checkpoint.epoch.assign_add(1)
             start_time = time.time()
 
@@ -162,9 +168,12 @@ def train_retinaface(cfg):
                 total_loss, losses = train_step(x_batch_train, y_batch_train, batch == 0, epoch == 0)
 
                 if cfg['distributed']:
-                    if hvd.local_rank() == 0:
-                        prog_bar.update("epoch={}/{}, loss={:.4f}, lr={:.1e}".format(
-                            checkpoint.epoch.numpy(), cfg['epoch'], total_loss.numpy(), optimizer._decayed_lr(tf.float32)))
+                    if hvd.rank() == 0:
+                        # prog_bar.update("epoch={}/{}, loss={:.4f}, lr={:.1e}".format(
+                        #     checkpoint.epoch.numpy(), cfg['epoch'], total_loss.numpy(), optimizer._decayed_lr(tf.float32)))
+                        if batch % 100 == 0:
+                            print("epoch={}/{}, loss={:.4f}, lr={:.1e}".format(
+                                checkpoint.epoch.numpy(), cfg['epoch'], total_loss.numpy(), optimizer._decayed_lr(tf.float32)))
                 else:
                     prog_bar.update("epoch={}/{}, loss={:.4f}, lr={:.1e}".format(
                         checkpoint.epoch.numpy(), cfg['epoch'], total_loss.numpy(), optimizer._decayed_lr(tf.float32)))
@@ -194,7 +203,12 @@ def train_retinaface(cfg):
 
                 ap_hard = widerface_eval_hard.calculate_ap()
                 widerface_eval_hard.reset()
-                print("Validation acc: %.4f" % (float(ap_hard),))
+
+                if cfg['distributed']:
+                    if hvd.rank() == 0:
+                        print("Validation acc: %.4f" % (float(ap_hard),))
+                else:
+                    print("Validation acc: %.4f" % (float(ap_hard),))
 
             def tensorboard_writer():
                 with summary_writer.as_default():

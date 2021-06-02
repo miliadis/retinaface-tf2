@@ -134,8 +134,12 @@ def load_tfrecord_dataset(dataset_root,
     assert batch_size == 1  # dynamic data len when using_encoding
 
   dataset_path = '{}/{}/'.format(dataset_root, split)
-  files = tf.io.matching_files(dataset_path + '*.records')
-  raw_dataset = tf.data.Dataset.from_tensor_slices(files)
+
+  raw_dataset = tf.data.Dataset.list_files(dataset_path + '*.records')
+
+  raw_dataset = raw_dataset.interleave(tf.data.TFRecordDataset,
+                                       cycle_length=number_cycles,
+                                       num_parallel_calls=threads)
 
   if hvd:
     raw_dataset = raw_dataset.shard(num_shards=hvd.size(), index=hvd.rank())
@@ -143,24 +147,14 @@ def load_tfrecord_dataset(dataset_root,
   raw_dataset = raw_dataset.repeat(1)
 
   if shuffle:
-    raw_dataset = raw_dataset.shuffle(tf.shape(files)[0].numpy(),)
-
-  raw_dataset = raw_dataset.interleave(lambda filename: tf.data.TFRecordDataset(filename),
-                                       cycle_length=number_cycles,
-                                       num_parallel_calls=threads)
-
-  if shuffle:
     raw_dataset = raw_dataset.shuffle(buffer_size=buffer_size)
 
-  dataset = raw_dataset.map(lambda tfrecord: tf.py_function(
-      ParseTFrecord(img_dim, using_bin, using_flip, using_distort, using_encoding, priors,
-                    match_thresh, ignore_thresh, variances, split), [tfrecord],
-      [tf.float32, tf.float32, tf.string]),
-                            num_parallel_calls=threads)
+  raw_dataset = raw_dataset.map(ParseTFrecord(img_dim, using_bin, using_flip, using_distort, using_encoding, priors,
+                    match_thresh, ignore_thresh, variances, split), num_parallel_calls=threads)
 
-  dataset = dataset.batch(batch_size, drop_remainder=True)
+  raw_dataset = raw_dataset.batch(batch_size, drop_remainder=True)
 
-  return dataset
+  return raw_dataset
 
 
 ###############################################################################
