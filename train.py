@@ -56,7 +56,6 @@ def train_retinaface(cfg):
         val_dataset = load_dataset(cfg, priors, 'val', [])
 
     # define optimizer
-    steps_per_epoch = cfg['dataset_len'] // cfg['batch_size']
     if cfg['distributed']:
         init_lr = cfg['init_lr'] * hvd.size()
         min_lr = cfg['min_lr'] * hvd.size()
@@ -171,16 +170,16 @@ def train_retinaface(cfg):
             for batch, (x_batch_train, y_batch_train, img_name) in enumerate(train_dataset):
                 total_loss, losses = train_step(x_batch_train, y_batch_train, batch == 0, epoch == 0)
 
-                # if cfg['distributed']:
-                #     if hvd.rank() == 0:
-                #         # prog_bar.update("epoch={}/{}, loss={:.4f}, lr={:.1e}".format(
-                #         #     checkpoint.epoch.numpy(), cfg['epoch'], total_loss.numpy(), optimizer._decayed_lr(tf.float32)))
-                #         if batch % 100 == 0:
-                #             print("batch={}/{},  epoch={}/{}, loss={:.4f}, lr={:.1e}".format(
-                #                 batch, steps_per_epoch, checkpoint.epoch.numpy(), cfg['epoch'], total_loss.numpy(), optimizer._decayed_lr(tf.float32)))
-                # else:
-                #     prog_bar.update("epoch={}/{}, loss={:.4f}, lr={:.1e}".format(
-                #         checkpoint.epoch.numpy(), cfg['epoch'], total_loss.numpy(), optimizer._decayed_lr(tf.float32)))
+                if cfg['distributed']:
+                    if hvd.rank() == 0:
+                        # prog_bar.update("epoch={}/{}, loss={:.4f}, lr={:.1e}".format(
+                        #     checkpoint.epoch.numpy(), cfg['epoch'], total_loss.numpy(), optimizer._decayed_lr(tf.float32)))
+                        if batch % 100 == 0:
+                            print("batch={}/{},  epoch={}/{}, loss={:.4f}, lr={:.1e}".format(
+                                batch, steps_per_epoch, checkpoint.epoch.numpy(), cfg['epoch'], total_loss.numpy(), optimizer._decayed_lr(tf.float32)))
+                else:
+                    prog_bar.update("epoch={}/{}, loss={:.4f}, lr={:.1e}".format(
+                        checkpoint.epoch.numpy(), cfg['epoch'], total_loss.numpy(), optimizer._decayed_lr(tf.float32)))
 
             # Display metrics at the end of each epoch.
             # train_acc = train_acc_metric.result()
