@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras import Model
-from tensorflow.keras.applications import MobileNetV2, ResNet50
+from tensorflow.keras.applications import MobileNetV2, ResNet50, ResNet152
 from tensorflow.keras.layers import Input, Conv2D, ReLU, LeakyReLU
 from modules.anchor import decode_tf, prior_box_tf
 
@@ -46,6 +46,13 @@ def Backbone(backbone_type='ResNet50', use_pretrain=True):
             pick_layer1 = 80  # [80, 80, 512]
             pick_layer2 = 142  # [40, 40, 1024]
             pick_layer3 = 174  # [20, 20, 2048]
+            preprocess = tf.keras.applications.resnet.preprocess_input
+        elif backbone_type == 'ResNet152':
+            extractor = ResNet152(
+                input_shape=x.shape[1:], include_top=False, weights=weights)
+            pick_layer1 = 120  # [80, 80, 512]
+            pick_layer2 = 482  # [40, 40, 1024]
+            pick_layer3 = 514  # [20, 20, 2048]
             preprocess = tf.keras.applications.resnet.preprocess_input
         elif backbone_type == 'MobileNetV2':
             extractor = MobileNetV2(

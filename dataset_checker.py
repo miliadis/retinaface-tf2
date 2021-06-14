@@ -12,7 +12,7 @@ from modules.utils import draw_anchor, draw_bbox_landm
 flags.DEFINE_string('output_path', '/output', 'output path')
 flags.DEFINE_string('dataset_path', '/data/wider_face', 'dataset path')
 flags.DEFINE_string('split', 'train', 'split to check data')
-flags.DEFINE_boolean('using_encoding', False, 'whether visualization or not')
+flags.DEFINE_boolean('using_encoding', True, 'whether visualization or not')
 flags.DEFINE_boolean('visualization', True, 'whether visualize dataset or not')
 
 
@@ -42,6 +42,7 @@ def main(_):
                               threads=threads,
                               number_cycles=number_cycles,
                               batch_size=batch_size,
+                              hvd=[],
                               img_dim=img_dim,
                               using_bin=using_bin,
                               using_flip=using_flip,

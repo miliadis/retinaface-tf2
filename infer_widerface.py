@@ -29,7 +29,7 @@ def main(_):
   logger = tf.get_logger()
   logger.disabled = True
   logger.setLevel(logging.FATAL)
-  set_memory_growth()
+  set_memory_growth([])
 
   cfg = load_yaml(FLAGS.cfg_path)
   cfg['dataset_root'] = FLAGS.dataset_root
@@ -38,7 +38,7 @@ def main(_):
   model = RetinaFaceModel(cfg, training=False, iou_th=FLAGS.iou_th, score_th=FLAGS.score_th)
 
   # load dataset
-  val_dataset = load_dataset(cfg, None, 'val')
+  val_dataset = load_dataset(cfg, None, 'val', [])
 
   # load checkpoint
   checkpoint_dir = os.path.join(FLAGS.checkpoint_dir, cfg['sub_name'])
@@ -83,10 +83,15 @@ def main(_):
   widerface_eval_hard = WiderFaceEval(split='hard')
 
   dataset_iter = val_dataset
-  num_of_samples = 3226
+  num_of_samples = 2474
+  #num_of_samples = 50
 
   for ii, (x_batch_val, y_batch_val, img_name) in enumerate(dataset_iter):
-    img_name = img_name.numpy()[0].decode().split('/')[1].split('.')[0]
+
+    if '/' in img_name.numpy()[0].decode():
+      img_name = img_name.numpy()[0].decode().split('/')[1].split('.')[0]
+    else:
+      img_name = []
 
     print(" [{} / {}] det {}".format(ii + 1, num_of_samples, img_name))
 
