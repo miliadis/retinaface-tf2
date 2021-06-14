@@ -3,6 +3,7 @@ import os
 import random
 import time
 import argparse
+import pickle
 import numpy as np
 import tensorflow as tf
 
@@ -12,7 +13,7 @@ from modules.losses import MultiBoxLoss
 from modules.anchor import prior_box
 from modules.utils import (ProgressBar, labels_to_boxes, load_dataset, load_yaml,
                            pad_input_image, recover_pad_output, set_memory_growth)
-from widerface_evaluate.evaluation import WiderFaceEval
+from evaluate.evaluation import WiderFaceEval
 
 
 def reset_random_seeds():
@@ -86,6 +87,10 @@ def train_retinaface(cfg):
     manager = tf.train.CheckpointManager(checkpoint=checkpoint,
                                          directory=checkpoint_dir,
                                          max_to_keep=3)
+
+    with open(os.path.join(checkpoint_dir, 'cfg.pickle'), 'wb') as handle:
+        pickle.dump(cfg, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
     if manager.latest_checkpoint:
         checkpoint.restore(manager.latest_checkpoint)
         print('[*] load ckpt from {}'.format(manager.latest_checkpoint))

@@ -8,7 +8,7 @@ from absl.flags import FLAGS
 from modules.models import RetinaFaceModel
 from modules.utils import (labels_to_boxes, load_dataset, load_yaml,
                            pad_input_image, recover_pad_output, set_memory_growth)
-from widerface_evaluate.evaluation import WiderFaceEval
+from evaluate.evaluation import WiderFaceEval
 
 
 flags.DEFINE_string('cfg_path', './configs/retinaface_res50.yaml', 'config file path')
