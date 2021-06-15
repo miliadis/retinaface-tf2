@@ -1,6 +1,6 @@
 import tensorflow as tf
 from modules.anchor import encode_tf
-
+#import pydevd
 
 class ParseTFrecord():
 
@@ -151,6 +151,10 @@ def load_tfrecord_dataset(dataset_root,
 
   raw_dataset = raw_dataset.map(ParseTFrecord(img_dim, using_bin, using_flip, using_distort, using_encoding, priors,
                     match_thresh, ignore_thresh, variances, split), num_parallel_calls=threads)
+
+  # raw_dataset = raw_dataset.map(lambda tfrecord: tf.py_function(
+  #     ParseTFrecord(img_dim, using_bin, using_flip, using_distort, using_encoding, priors, match_thresh, ignore_thresh, variances, split), [tfrecord],
+  #     [tf.float32, tf.float32, tf.string]), num_parallel_calls=threads)
 
   raw_dataset = raw_dataset.batch(batch_size, drop_remainder=True)
 

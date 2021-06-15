@@ -88,6 +88,7 @@ def train_retinaface(cfg):
                                          directory=checkpoint_dir,
                                          max_to_keep=3)
 
+    os.makedirs(checkpoint_dir, exist_ok=True)
     with open(os.path.join(checkpoint_dir, 'cfg.pickle'), 'wb') as handle:
         pickle.dump(cfg, handle, protocol=pickle.HIGHEST_PROTOCOL)
 

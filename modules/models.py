@@ -46,13 +46,15 @@ def Backbone(backbone_type='ResNet50', use_pretrain=True):
             pick_layer1 = 80  # [80, 80, 512]
             pick_layer2 = 142  # [40, 40, 1024]
             pick_layer3 = 174  # [20, 20, 2048]
+            pick_layer4 = []
             preprocess = tf.keras.applications.resnet.preprocess_input
         elif backbone_type == 'ResNet152':
             extractor = ResNet152(
                 input_shape=x.shape[1:], include_top=False, weights=weights)
-            pick_layer1 = 120  # [80, 80, 512]
-            pick_layer2 = 482  # [40, 40, 1024]
-            pick_layer3 = 514  # [20, 20, 2048]
+            pick_layer1 = 38  # [160, 160, 256]
+            pick_layer2 = 120  # [80, 80, 512]
+            pick_layer3 = 482  # [40, 40, 1024]
+            pick_layer4 = 514  # [20, 20, 2048]
             preprocess = tf.keras.applications.resnet.preprocess_input
         elif backbone_type == 'MobileNetV2':
             extractor = MobileNetV2(
@@ -60,6 +62,7 @@ def Backbone(backbone_type='ResNet50', use_pretrain=True):
             pick_layer1 = 54  # [80, 80, 32]
             pick_layer2 = 116  # [40, 40, 96]
             pick_layer3 = 143  # [20, 20, 160]
+            pick_layer4 = []
             preprocess = tf.keras.applications.mobilenet_v2.preprocess_input
         else:
             raise NotImplementedError(
@@ -68,7 +71,9 @@ def Backbone(backbone_type='ResNet50', use_pretrain=True):
         return Model(extractor.input,
                      (extractor.layers[pick_layer1].output,
                       extractor.layers[pick_layer2].output,
-                      extractor.layers[pick_layer3].output),
+                      extractor.layers[pick_layer3].output,
+                      extractor.layers[pick_layer4].output
+                      ),
                      name=backbone_type + '_extrator')(preprocess(x))
 
     return backbone
@@ -109,13 +114,29 @@ class FPN(tf.keras.layers.Layer):
         self.output1 = ConvUnit(f=out_ch, k=1, s=1, wd=wd, act=act)
         self.output2 = ConvUnit(f=out_ch, k=1, s=1, wd=wd, act=act)
         self.output3 = ConvUnit(f=out_ch, k=1, s=1, wd=wd, act=act)
+        self.output4 = ConvUnit(f=out_ch, k=1, s=1, wd=wd, act=act)
+        self.output5 = ConvUnit(f=out_ch, k=3, s=2, wd=wd, act=act)
         self.merge1 = ConvUnit(f=out_ch, k=3, s=1, wd=wd, act=act)
         self.merge2 = ConvUnit(f=out_ch, k=3, s=1, wd=wd, act=act)
+        self.merge3 = ConvUnit(f=out_ch, k=3, s=1, wd=wd, act=act)
+        self.merge4 = ConvUnit(f=out_ch, k=3, s=1, wd=wd, act=act)
 
     def call(self, x):
-        output1 = self.output1(x[0])  # [80, 80, out_ch]
-        output2 = self.output2(x[1])  # [40, 40, out_ch]
-        output3 = self.output3(x[2])  # [20, 20, out_ch]
+        output1 = self.output1(x[0])  # [160, 160, out_ch]
+        output2 = self.output2(x[1])  # [80, 80, out_ch]
+        output3 = self.output3(x[2])  # [40, 40, out_ch]
+        output4 = self.output4(x[3])  # [20, 20, out_ch]
+        output5 = self.output5(x[3])  # [10, 10, out_ch]
+
+        up_h, up_w = tf.shape(output4)[1], tf.shape(output4)[2]
+        up5 = tf.image.resize(output5, [up_h, up_w], method='nearest')
+        output4 = output4 + up5
+        output4 = self.merge4(output4)
+
+        up_h, up_w = tf.shape(output3)[1], tf.shape(output3)[2]
+        up4 = tf.image.resize(output4, [up_h, up_w], method='nearest')
+        output3 = output3 + up4
+        output3 = self.merge3(output3)
 
         up_h, up_w = tf.shape(output2)[1], tf.shape(output2)[2]
         up3 = tf.image.resize(output3, [up_h, up_w], method='nearest')
@@ -127,7 +148,7 @@ class FPN(tf.keras.layers.Layer):
         output1 = output1 + up2
         output1 = self.merge1(output1)
 
-        return output1, output2, output3
+        return output1, output2, output3, output4, output5
 
 
 class SSH(tf.keras.layers.Layer):
