@@ -33,7 +33,7 @@ class BatchNormalization(tf.keras.layers.BatchNormalization):
         return super().call(x, training)
 
 
-def Backbone(backbone_type='ResNet50', use_pretrain=True):
+def Backbone(backbone_type='ResNet50', use_pretrain=True, levels='3'):
     """Backbone Model"""
     weights = None
     if use_pretrain:
@@ -68,13 +68,23 @@ def Backbone(backbone_type='ResNet50', use_pretrain=True):
             raise NotImplementedError(
                 'Backbone type {} is not recognized.'.format(backbone_type))
 
-        return Model(extractor.input,
-                     (extractor.layers[pick_layer1].output,
-                      extractor.layers[pick_layer2].output,
-                      extractor.layers[pick_layer3].output,
-                      extractor.layers[pick_layer4].output
-                      ),
-                     name=backbone_type + '_extrator')(preprocess(x))
+        if levels == '5':
+            model = Model(extractor.input,
+                  (extractor.layers[pick_layer1].output,
+                   extractor.layers[pick_layer2].output,
+                   extractor.layers[pick_layer3].output,
+                   extractor.layers[pick_layer4].output
+                   ),
+                  name=backbone_type + '_extrator')(preprocess(x))
+        else:
+            model = Model(extractor.input,
+                  (extractor.layers[pick_layer1].output,
+                   extractor.layers[pick_layer2].output,
+                   extractor.layers[pick_layer3].output
+                   ),
+                  name=backbone_type + '_extrator')(preprocess(x))
+
+        return model
 
     return backbone
 
@@ -105,11 +115,13 @@ class ConvUnit(tf.keras.layers.Layer):
 
 class FPN(tf.keras.layers.Layer):
     """Feature Pyramid Network"""
-    def __init__(self, out_ch, wd, name='FPN', **kwargs):
+    def __init__(self, out_ch, wd, name='FPN', levels='3', **kwargs):
         super(FPN, self).__init__(name=name, **kwargs)
         act = 'relu'
         if (out_ch <= 64):
             act = 'lrelu'
+
+        self.levels = levels
 
         self.output1 = ConvUnit(f=out_ch, k=1, s=1, wd=wd, act=act)
         self.output2 = ConvUnit(f=out_ch, k=1, s=1, wd=wd, act=act)
@@ -125,18 +137,20 @@ class FPN(tf.keras.layers.Layer):
         output1 = self.output1(x[0])  # [160, 160, out_ch]
         output2 = self.output2(x[1])  # [80, 80, out_ch]
         output3 = self.output3(x[2])  # [40, 40, out_ch]
-        output4 = self.output4(x[3])  # [20, 20, out_ch]
-        output5 = self.output5(x[3])  # [10, 10, out_ch]
 
-        up_h, up_w = tf.shape(output4)[1], tf.shape(output4)[2]
-        up5 = tf.image.resize(output5, [up_h, up_w], method='nearest')
-        output4 = output4 + up5
-        output4 = self.merge4(output4)
+        if self.levels == '5':
+            output4 = self.output4(x[3])  # [20, 20, out_ch]
+            output5 = self.output5(x[3])  # [10, 10, out_ch]
 
-        up_h, up_w = tf.shape(output3)[1], tf.shape(output3)[2]
-        up4 = tf.image.resize(output4, [up_h, up_w], method='nearest')
-        output3 = output3 + up4
-        output3 = self.merge3(output3)
+            up_h, up_w = tf.shape(output4)[1], tf.shape(output4)[2]
+            up5 = tf.image.resize(output5, [up_h, up_w], method='nearest')
+            output4 = output4 + up5
+            output4 = self.merge4(output4)
+
+            up_h, up_w = tf.shape(output3)[1], tf.shape(output3)[2]
+            up4 = tf.image.resize(output4, [up_h, up_w], method='nearest')
+            output3 = output3 + up4
+            output3 = self.merge3(output3)
 
         up_h, up_w = tf.shape(output2)[1], tf.shape(output2)[2]
         up3 = tf.image.resize(output3, [up_h, up_w], method='nearest')
@@ -148,7 +162,12 @@ class FPN(tf.keras.layers.Layer):
         output1 = output1 + up2
         output1 = self.merge1(output1)
 
-        return output1, output2, output3, output4, output5
+        if self.levels == '5':
+            outputs = output1, output2, output3, output4, output5
+        else:
+            outputs = output1, output2, output3
+
+        return outputs
 
 
 class SSH(tf.keras.layers.Layer):
@@ -260,13 +279,14 @@ def RetinaFaceModel(cfg, training=False, iou_th=0.4, score_th=0.02,
     out_ch = cfg['out_channel']
     num_anchor = len(cfg['min_sizes'][0])
     backbone_type = cfg['backbone_type']
+    levels = '3'
 
     # define model
     x = inputs = Input([input_size, input_size, 3], name='input_image')
 
-    x = Backbone(backbone_type=backbone_type)(x)
+    x = Backbone(backbone_type=backbone_type, levels=levels)(x)
 
-    fpn = FPN(out_ch=out_ch, wd=wd)(x)
+    fpn = FPN(out_ch=out_ch, wd=wd, levels=levels)(x)
 
     features = [SSH(out_ch=out_ch, wd=wd, name=f'SSH_{i}')(f)
                 for i, f in enumerate(fpn)]
