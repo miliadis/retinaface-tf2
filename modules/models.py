@@ -246,6 +246,81 @@ class ClassHead(tf.keras.layers.Layer):
         return tf.reshape(x, [-1, h * w * self.num_anchor, 2])
 
 
+class PadInputImage(tf.keras.layers.Layer):
+    def __init__(self, max_steps):
+        super(PadInputImage, self).__init__(name='PadInputImage')
+        self.max_steps = max_steps
+
+    def call(self, x):
+        img_h, img_w = tf.shape(x)[1], tf.shape(x)[2]
+
+        tmp_h = img_h % self.max_steps
+        img_pad_h = tf.cond(tmp_h > 0, lambda: self.max_steps - img_h % self.max_steps, lambda: 0)
+
+        tmp_w = img_w % self.max_steps
+        img_pad_w = tf.cond(tmp_w > 0, lambda: self.max_steps - img_w % self.max_steps, lambda: 0)
+
+        paddings = [[0, 0], [0, img_pad_h], [0, img_pad_w], [0, 0]]
+        x = tf.pad(x, paddings, mode='REFLECT', name=None)
+
+        pad_params = [img_h, img_w, img_pad_h, img_pad_w]
+
+        return x, pad_params
+
+
+class RecoverPadOutputs(tf.keras.layers.Layer):
+    def __init__(self):
+        super(RecoverPadOutputs, self).__init__(name='RecoverPadOutputs')
+
+    def call(self, x, pad_params):
+
+        img_h, img_w, img_pad_h, img_pad_w = pad_params
+
+        first_input = x[:, :14]
+        second_input = x[:, 14:]
+
+        recover_xy = tf.reshape(first_input, [-1, 7, 2]) * \
+                     [(img_pad_w + img_w) / img_w, (img_pad_h + img_h) / img_h]
+        first_input = tf.reshape(recover_xy, [-1, 14])
+
+        return tf.concat([first_input, second_input], axis=1)
+
+
+class ProcessOutput(tf.keras.layers.Layer):
+
+    def __init__(self):
+        super(ProcessOutput, self).__init__(name='ProcessOutput')
+
+    def call(self, outputs):
+
+        # img_h, img_w = self.img_shape[0], self.img_shape[1]
+        #
+        # if len(outputs) == 0:
+        #     return [], [], []
+
+        lmks = outputs[:, 4:14]
+
+        lmks = tf.reshape(lmks, (-1, 5, 2))
+        bboxes = outputs[:, :4]
+        confs = outputs[:, -1]
+
+        # bboxs = bboxs * [img_w, img_h, ]
+        #
+        # pred_boxes = []
+        # for box, lmk, conf in zip(bboxs, pred_lmks, confs):
+        #     x = int(box[0] * img_width_raw)
+        #     y = int(box[1] * img_height_raw)
+        #     w = int(box[2] * img_width_raw) - int(box[0] * img_width_raw)
+        #     h = int(box[3] * img_height_raw) - int(box[1] * img_height_raw)
+        #     pred_boxes.append([x, y, w, h, conf])
+        #
+        #     for lmk_region in lmk:
+        #         lmk_region[0] = lmk_region[0] * img_width_raw
+        #         lmk_region[1] = lmk_region[1] * img_height_raw
+        #
+        # pred_boxes = np.array(pred_boxes).astype('float')
+        return bboxes, confs, lmks
+
 def pred_to_outputs(cfg, output, inp_shape, iou_th=0.4, score_th=0.02):
 
   bbox_regressions, landm_regressions, classifications = output
@@ -282,9 +357,13 @@ def RetinaFaceModel(cfg, training=False, iou_th=0.4, score_th=0.02,
     levels = '3'
 
     # define model
-    x = inputs = Input([input_size, input_size, 3], name='input_image')
+    x = input_img = Input([input_size, input_size, 3], name='input_image')
+    inputs = input_img
 
-    x = Backbone(backbone_type=backbone_type, levels=levels)(x)
+    if not training:
+        padded_img, pad_params = PadInputImage(max(cfg['steps']))(x)
+
+    x = Backbone(backbone_type=backbone_type, levels=levels)(padded_img)
 
     fpn = FPN(out_ch=out_ch, wd=wd, levels=levels)(x)
 
@@ -311,7 +390,7 @@ def RetinaFaceModel(cfg, training=False, iou_th=0.4, score_th=0.02,
             [bbox_regressions[0], landm_regressions[0],
              tf.ones_like(classifications[0, :, 0][..., tf.newaxis]),
              classifications[0, :, 1][..., tf.newaxis]], 1)
-        priors = prior_box_tf((tf.shape(inputs)[1], tf.shape(inputs)[2]),
+        priors = prior_box_tf((tf.shape(padded_img)[1], tf.shape(padded_img)[2]),
                               cfg['min_sizes'],  cfg['steps'], cfg['clip'])
         decode_preds = decode_tf(preds, priors, cfg['variances'])
 
@@ -323,5 +402,11 @@ def RetinaFaceModel(cfg, training=False, iou_th=0.4, score_th=0.02,
             score_threshold=score_th)
 
         out = tf.gather(decode_preds, selected_indices)
+
+        out = RecoverPadOutputs()(out, pad_params)
+
+        bboxes, confs, lmks = ProcessOutput()(out)
+
+        out = [bboxes, confs, lmks]
 
     return Model(inputs, out, name=name)
