@@ -293,33 +293,14 @@ class ProcessOutput(tf.keras.layers.Layer):
 
     def call(self, outputs):
 
-        # img_h, img_w = self.img_shape[0], self.img_shape[1]
-        #
-        # if len(outputs) == 0:
-        #     return [], [], []
-
         lmks = outputs[:, 4:14]
 
         lmks = tf.reshape(lmks, (-1, 5, 2))
         bboxes = outputs[:, :4]
         confs = outputs[:, -1]
 
-        # bboxs = bboxs * [img_w, img_h, ]
-        #
-        # pred_boxes = []
-        # for box, lmk, conf in zip(bboxs, pred_lmks, confs):
-        #     x = int(box[0] * img_width_raw)
-        #     y = int(box[1] * img_height_raw)
-        #     w = int(box[2] * img_width_raw) - int(box[0] * img_width_raw)
-        #     h = int(box[3] * img_height_raw) - int(box[1] * img_height_raw)
-        #     pred_boxes.append([x, y, w, h, conf])
-        #
-        #     for lmk_region in lmk:
-        #         lmk_region[0] = lmk_region[0] * img_width_raw
-        #         lmk_region[1] = lmk_region[1] * img_height_raw
-        #
-        # pred_boxes = np.array(pred_boxes).astype('float')
         return bboxes, confs, lmks
+
 
 def pred_to_outputs(cfg, output, inp_shape, iou_th=0.4, score_th=0.02):
 
