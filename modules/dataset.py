@@ -1,61 +1,82 @@
 import tensorflow as tf
 from modules.anchor import encode_tf
+#import pydevd
 
+class ParseTFrecord():
 
-def _parse_tfrecord(img_dim, using_bin, using_flip, using_distort,
-                    using_encoding, priors, match_thresh, ignore_thresh,
-                    variances):
-    def parse_tfrecord(tfrecord):
-        features = {
-            'image/img_name': tf.io.FixedLenFeature([], tf.string),
-            'image/object/bbox/xmin': tf.io.VarLenFeature(tf.float32),
-            'image/object/bbox/ymin': tf.io.VarLenFeature(tf.float32),
-            'image/object/bbox/xmax': tf.io.VarLenFeature(tf.float32),
-            'image/object/bbox/ymax': tf.io.VarLenFeature(tf.float32),
-            'image/object/landmark0/x': tf.io.VarLenFeature(tf.float32),
-            'image/object/landmark0/y': tf.io.VarLenFeature(tf.float32),
-            'image/object/landmark1/x': tf.io.VarLenFeature(tf.float32),
-            'image/object/landmark1/y': tf.io.VarLenFeature(tf.float32),
-            'image/object/landmark2/x': tf.io.VarLenFeature(tf.float32),
-            'image/object/landmark2/y': tf.io.VarLenFeature(tf.float32),
-            'image/object/landmark3/x': tf.io.VarLenFeature(tf.float32),
-            'image/object/landmark3/y': tf.io.VarLenFeature(tf.float32),
-            'image/object/landmark4/x': tf.io.VarLenFeature(tf.float32),
-            'image/object/landmark4/y': tf.io.VarLenFeature(tf.float32),
-            'image/object/landmark/valid': tf.io.VarLenFeature(tf.float32)}
-        if using_bin:
-            features['image/encoded'] = tf.io.FixedLenFeature([], tf.string)
-            x = tf.io.parse_single_example(tfrecord, features)
-            img = tf.image.decode_jpeg(x['image/encoded'], channels=3)
-        else:
-            features['image/img_path'] = tf.io.FixedLenFeature([], tf.string)
-            x = tf.io.parse_single_example(tfrecord, features)
-            image_encoded = tf.io.read_file(x['image/img_path'])
-            img = tf.image.decode_jpeg(image_encoded, channels=3)
+  def __init__(self, img_dim, using_bin, using_flip, using_distort, using_encoding, priors,
+               match_thresh, ignore_thresh, variances, split):
 
-        labels = tf.stack(
-            [tf.sparse.to_dense(x['image/object/bbox/xmin']),
-             tf.sparse.to_dense(x['image/object/bbox/ymin']),
-             tf.sparse.to_dense(x['image/object/bbox/xmax']),
-             tf.sparse.to_dense(x['image/object/bbox/ymax']),
-             tf.sparse.to_dense(x['image/object/landmark0/x']),
-             tf.sparse.to_dense(x['image/object/landmark0/y']),
-             tf.sparse.to_dense(x['image/object/landmark1/x']),
-             tf.sparse.to_dense(x['image/object/landmark1/y']),
-             tf.sparse.to_dense(x['image/object/landmark2/x']),
-             tf.sparse.to_dense(x['image/object/landmark2/y']),
-             tf.sparse.to_dense(x['image/object/landmark3/x']),
-             tf.sparse.to_dense(x['image/object/landmark3/y']),
-             tf.sparse.to_dense(x['image/object/landmark4/x']),
-             tf.sparse.to_dense(x['image/object/landmark4/y']),
-             tf.sparse.to_dense(x['image/object/landmark/valid'])], axis=1)
+    self.img_dim = img_dim
+    self.using_bin = using_bin
+    self.using_flip = using_flip
+    self.using_distort = using_distort
+    self.using_encoding = using_encoding
+    self.priors = priors
+    self.match_thresh = match_thresh
+    self.ignore_thresh = ignore_thresh
+    self.variances = variances
+    self.split = split
 
-        img, labels = _transform_data(
-            img_dim, using_flip, using_distort, using_encoding, priors,
-            match_thresh, ignore_thresh, variances)(img, labels)
+  def __call__(self, tfrecord):
 
-        return img, labels
-    return parse_tfrecord
+    #pydevd.settrace(suspend=False)
+
+    features = {
+        'image/img_name': tf.io.FixedLenFeature([], tf.string),
+        'image/object/bbox/xmin': tf.io.VarLenFeature(tf.float32),
+        'image/object/bbox/ymin': tf.io.VarLenFeature(tf.float32),
+        'image/object/bbox/xmax': tf.io.VarLenFeature(tf.float32),
+        'image/object/bbox/ymax': tf.io.VarLenFeature(tf.float32),
+        'image/object/landmark0/x': tf.io.VarLenFeature(tf.float32),
+        'image/object/landmark0/y': tf.io.VarLenFeature(tf.float32),
+        'image/object/landmark1/x': tf.io.VarLenFeature(tf.float32),
+        'image/object/landmark1/y': tf.io.VarLenFeature(tf.float32),
+        'image/object/landmark2/x': tf.io.VarLenFeature(tf.float32),
+        'image/object/landmark2/y': tf.io.VarLenFeature(tf.float32),
+        'image/object/landmark3/x': tf.io.VarLenFeature(tf.float32),
+        'image/object/landmark3/y': tf.io.VarLenFeature(tf.float32),
+        'image/object/landmark4/x': tf.io.VarLenFeature(tf.float32),
+        'image/object/landmark4/y': tf.io.VarLenFeature(tf.float32),
+        'image/object/landmark/valid': tf.io.VarLenFeature(tf.float32)
+    }
+    if self.using_bin:
+      features['image/encoded'] = tf.io.FixedLenFeature([], tf.string)
+      x = tf.io.parse_single_example(tfrecord, features)
+      img = tf.image.decode_jpeg(x['image/encoded'], channels=3)
+    else:
+      features['image/img_path'] = tf.io.FixedLenFeature([], tf.string)
+      x = tf.io.parse_single_example(tfrecord, features)
+      image_encoded = tf.io.read_file(x['image/img_path'])
+      img = tf.image.decode_jpeg(image_encoded, channels=3)
+
+    labels = tf.stack([
+        tf.sparse.to_dense(x['image/object/bbox/xmin']),
+        tf.sparse.to_dense(x['image/object/bbox/ymin']),
+        tf.sparse.to_dense(x['image/object/bbox/xmax']),
+        tf.sparse.to_dense(x['image/object/bbox/ymax']),
+        tf.sparse.to_dense(x['image/object/landmark0/x']),
+        tf.sparse.to_dense(x['image/object/landmark0/y']),
+        tf.sparse.to_dense(x['image/object/landmark1/x']),
+        tf.sparse.to_dense(x['image/object/landmark1/y']),
+        tf.sparse.to_dense(x['image/object/landmark2/x']),
+        tf.sparse.to_dense(x['image/object/landmark2/y']),
+        tf.sparse.to_dense(x['image/object/landmark3/x']),
+        tf.sparse.to_dense(x['image/object/landmark3/y']),
+        tf.sparse.to_dense(x['image/object/landmark4/x']),
+        tf.sparse.to_dense(x['image/object/landmark4/y']),
+        tf.sparse.to_dense(x['image/object/landmark/valid'])
+    ],
+                      axis=1)
+
+    if self.split is 'train':
+      img, labels = _transform_data(self.img_dim, self.using_flip, self.using_distort,
+                                    self.using_encoding, self.priors, self.match_thresh,
+                                    self.ignore_thresh, self.variances)(img, labels)
+    else:
+      img = tf.cast(img, tf.float32)
+
+    return img, labels, x['image/img_name']
 
 
 def _transform_data(img_dim, using_flip, using_distort, using_encoding, priors,
@@ -91,31 +112,53 @@ def _transform_data(img_dim, using_flip, using_distort, using_encoding, priors,
     return transform_data
 
 
-def load_tfrecord_dataset(tfrecord_name, batch_size, img_dim,
-                          using_bin=True, using_flip=True, using_distort=True,
-                          using_encoding=True, priors=None, match_thresh=0.45,
-                          ignore_thresh=0.3, variances=[0.1, 0.2],
-                          shuffle=True, buffer_size=10240):
-    """load dataset from tfrecord"""
-    if not using_encoding:
-        assert batch_size == 1  # dynamic data len when using_encoding
-    else:
-        assert priors is not None
+def load_tfrecord_dataset(dataset_root,
+                      split,
+                      threads,
+                      number_cycles,
+                      batch_size,
+                      img_dim,
+                      hvd,
+                      using_bin=True,
+                      using_flip=True,
+                      using_distort=True,
+                      using_encoding=True,
+                      priors=None,
+                      match_thresh=0.45,
+                      ignore_thresh=0.3,
+                      variances=[0.1, 0.2],
+                      shuffle=True,
+                      buffer_size=10240):
+  """load dataset from tfrecord"""
+  if not using_encoding:
+    assert batch_size == 1  # dynamic data len when using_encoding
 
-    raw_dataset = tf.data.TFRecordDataset(tfrecord_name)
-    raw_dataset = raw_dataset.repeat()
-    if shuffle:
-        raw_dataset = raw_dataset.shuffle(buffer_size=buffer_size)
-    dataset = raw_dataset.map(
-        _parse_tfrecord(img_dim, using_bin, using_flip, using_distort,
-                        using_encoding, priors, match_thresh, ignore_thresh,
-                        variances),
-        num_parallel_calls=tf.data.experimental.AUTOTUNE)
-    dataset = dataset.batch(batch_size, drop_remainder=True)
-    dataset = dataset.prefetch(
-        buffer_size=tf.data.experimental.AUTOTUNE)
+  dataset_path = '{}/{}/'.format(dataset_root, split)
 
-    return dataset
+  raw_dataset = tf.data.Dataset.list_files(dataset_path + '*.records')
+
+  raw_dataset = raw_dataset.interleave(tf.data.TFRecordDataset,
+                                       cycle_length=number_cycles,
+                                       num_parallel_calls=threads)
+
+  if hvd:
+    raw_dataset = raw_dataset.shard(num_shards=hvd.size(), index=hvd.rank())
+
+  raw_dataset = raw_dataset.repeat(1)
+
+  if shuffle:
+    raw_dataset = raw_dataset.shuffle(buffer_size=buffer_size)
+
+  raw_dataset = raw_dataset.map(ParseTFrecord(img_dim, using_bin, using_flip, using_distort, using_encoding, priors,
+                    match_thresh, ignore_thresh, variances, split), num_parallel_calls=threads)
+
+  # raw_dataset = raw_dataset.map(lambda tfrecord: tf.py_function(
+  #     ParseTFrecord(img_dim, using_bin, using_flip, using_distort, using_encoding, priors, match_thresh, ignore_thresh, variances, split), [tfrecord],
+  #     [tf.float32, tf.float32, tf.string]), num_parallel_calls=threads)
+
+  raw_dataset = raw_dataset.batch(batch_size, drop_remainder=True)
+
+  return raw_dataset
 
 
 ###############################################################################

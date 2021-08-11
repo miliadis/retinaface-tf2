@@ -2,17 +2,18 @@
 batch_size: 8
 input_size: 640
 backbone_type: 'ResNet50'  # 'ResNet50', 'MobileNetV2'
-sub_name: 'retinaface_res50'
+sub_name: 'retinaface_res50_widerface_benchmarks'
+evaluation_during_training: False
+distributed: True
 
 # training dataset
-dataset_path: './data/widerface_train_bin.tfrecord'
+dataset_name: 'wider_face_correct'
+dataset_root: '/mnt/data'
 dataset_len: 12880  # number of training samples
 using_bin: True
 using_flip: True
 using_distort: True
-
-# testing dataset
-testing_dataset_path: './data/widerface/val'
+number_cycles: 2
 
 # network
 out_channel: 256

@@ -7,5 +7,5 @@ logs/*
 data/*/**/*.png
 data/*/**/*.jpg
 data/widerface/**/*.txt
-widerface_evaluate/*
+evaluate/*
 results/*

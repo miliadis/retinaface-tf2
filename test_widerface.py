@@ -14,7 +14,7 @@ from modules.utils import (set_memory_growth, load_yaml, draw_bbox_landm,
 flags.DEFINE_string('cfg_path', './configs/retinaface_res50.yaml',
                     'config file path')
 flags.DEFINE_string('gpu', '0', 'which gpu to use')
-flags.DEFINE_string('save_folder', './widerface_evaluate/widerface_txt/',
+flags.DEFINE_string('save_folder', './evaluate/widerface_txt/',
                     'folder path to save evaluate results')
 flags.DEFINE_boolean('origin_size', True,
                      'whether use origin image size to evaluate')

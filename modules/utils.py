@@ -7,7 +7,6 @@ import tensorflow as tf
 from absl import logging
 from modules.dataset import load_tfrecord_dataset
 
-
 def load_yaml(load_path):
     """load yaml file"""
     with open(load_path, 'r') as f:
@@ -16,41 +15,62 @@ def load_yaml(load_path):
     return loaded
 
 
-def set_memory_growth():
+def set_memory_growth(hvd):
     gpus = tf.config.experimental.list_physical_devices('GPU')
     if gpus:
         try:
             # Currently, memory growth needs to be the same across GPUs
             for gpu in gpus:
                 tf.config.experimental.set_memory_growth(gpu, True)
-                logical_gpus = tf.config.experimental.list_logical_devices(
-                    'GPU')
-                logging.info(
-                    "Detect {} Physical GPUs, {} Logical GPUs.".format(
-                        len(gpus), len(logical_gpus)))
+            if hvd:
+                tf.config.experimental.set_visible_devices(gpus[hvd.local_rank()], 'GPU')
         except RuntimeError as e:
             # Memory growth must be set before GPUs have been initialized
             logging.info(e)
 
 
-def load_dataset(cfg, priors, shuffle=True, buffer_size=10240):
-    """load dataset"""
-    logging.info("load dataset from {}".format(cfg['dataset_path']))
-    dataset = load_tfrecord_dataset(
-        tfrecord_name=cfg['dataset_path'],
-        batch_size=cfg['batch_size'],
-        img_dim=cfg['input_size'],
-        using_bin=cfg['using_bin'],
-        using_flip=cfg['using_flip'],
-        using_distort=cfg['using_distort'],
-        using_encoding=True,
-        priors=priors,
-        match_thresh=cfg['match_thresh'],
-        ignore_thresh=cfg['ignore_thresh'],
-        variances=cfg['variances'],
-        shuffle=shuffle,
-        buffer_size=buffer_size)
-    return dataset
+def load_dataset(cfg, priors, split, hvd):
+  """load dataset"""
+  logging.info("load dataset from {}".format(cfg['dataset_root']))
+
+  if split is 'train':
+    batch_size = cfg['batch_size']
+    shuffle = True
+    using_flip = cfg['using_flip']
+    using_distort = cfg['using_distort']
+    using_encoding = True
+    buffer_size = 2000
+    number_cycles = cfg['number_cycles']
+    threads = tf.data.experimental.AUTOTUNE
+  else:
+    batch_size = 1
+    shuffle = False
+    using_flip = False
+    using_distort = False
+    using_encoding = False
+    buffer_size = 2000
+    number_cycles = 1
+    threads = tf.data.experimental.AUTOTUNE
+
+  dataset = load_tfrecord_dataset(dataset_root=cfg['dataset_root'],
+                              split=split,
+                              threads=threads,
+                              number_cycles=number_cycles,
+                              batch_size=batch_size,
+                              hvd=hvd,
+                              img_dim=cfg['input_size'],
+                              using_bin=cfg['using_bin'],
+                              using_flip=using_flip,
+                              using_distort=using_distort,
+                              using_encoding=using_encoding,
+                              priors=priors,
+                              match_thresh=cfg['match_thresh'],
+                              ignore_thresh=cfg['ignore_thresh'],
+                              variances=cfg['variances'],
+                              shuffle=shuffle,
+                              buffer_size=buffer_size)
+  return dataset
+
 
 
 class ProgressBar(object):
@@ -143,6 +163,13 @@ def recover_pad_output(outputs, pad_params):
     return outputs
 
 
+def labels_to_boxes(labels):
+  gt_boxes = labels[0, :, 0:4].numpy().astype('float')
+  gt_boxes[:, 2] = gt_boxes[:, 2] - gt_boxes[:, 0]  # width
+  gt_boxes[:, 3] = gt_boxes[:, 3] - gt_boxes[:, 1]  # height
+  return gt_boxes
+
+
 ###############################################################################
 #   Visulization                                                              #
 ###############################################################################
@@ -154,9 +181,10 @@ def draw_bbox_landm(img, ann, img_height, img_width):
     cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
     # confidence
-    text = "{:.4f}".format(ann[15])
-    cv2.putText(img, text, (int(ann[0] * img_width), int(ann[1] * img_height)),
-                cv2.FONT_HERSHEY_DUPLEX, 0.5, (255, 255, 255))
+    if len(ann) > 15:
+        text = "{:.4f}".format(ann[15])
+        cv2.putText(img, text, (int(ann[0] * img_width), int(ann[1] * img_height)),
+                    cv2.FONT_HERSHEY_DUPLEX, 0.5, (255, 255, 255))
 
     # landmark
     if ann[14] > 0:

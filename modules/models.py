@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras import Model
-from tensorflow.keras.applications import MobileNetV2, ResNet50
+from tensorflow.keras.applications import MobileNetV2, ResNet50, ResNet152
 from tensorflow.keras.layers import Input, Conv2D, ReLU, LeakyReLU
 from modules.anchor import decode_tf, prior_box_tf
 
@@ -33,7 +33,7 @@ class BatchNormalization(tf.keras.layers.BatchNormalization):
         return super().call(x, training)
 
 
-def Backbone(backbone_type='ResNet50', use_pretrain=True):
+def Backbone(backbone_type='ResNet50', use_pretrain=True, levels='3'):
     """Backbone Model"""
     weights = None
     if use_pretrain:
@@ -46,6 +46,15 @@ def Backbone(backbone_type='ResNet50', use_pretrain=True):
             pick_layer1 = 80  # [80, 80, 512]
             pick_layer2 = 142  # [40, 40, 1024]
             pick_layer3 = 174  # [20, 20, 2048]
+            pick_layer4 = []
+            preprocess = tf.keras.applications.resnet.preprocess_input
+        elif backbone_type == 'ResNet152':
+            extractor = ResNet152(
+                input_shape=x.shape[1:], include_top=False, weights=weights)
+            pick_layer1 = 38  # [160, 160, 256]
+            pick_layer2 = 120  # [80, 80, 512]
+            pick_layer3 = 482  # [40, 40, 1024]
+            pick_layer4 = 514  # [20, 20, 2048]
             preprocess = tf.keras.applications.resnet.preprocess_input
         elif backbone_type == 'MobileNetV2':
             extractor = MobileNetV2(
@@ -53,16 +62,29 @@ def Backbone(backbone_type='ResNet50', use_pretrain=True):
             pick_layer1 = 54  # [80, 80, 32]
             pick_layer2 = 116  # [40, 40, 96]
             pick_layer3 = 143  # [20, 20, 160]
+            pick_layer4 = []
             preprocess = tf.keras.applications.mobilenet_v2.preprocess_input
         else:
             raise NotImplementedError(
                 'Backbone type {} is not recognized.'.format(backbone_type))
 
-        return Model(extractor.input,
-                     (extractor.layers[pick_layer1].output,
-                      extractor.layers[pick_layer2].output,
-                      extractor.layers[pick_layer3].output),
-                     name=backbone_type + '_extrator')(preprocess(x))
+        if levels == '5':
+            model = Model(extractor.input,
+                  (extractor.layers[pick_layer1].output,
+                   extractor.layers[pick_layer2].output,
+                   extractor.layers[pick_layer3].output,
+                   extractor.layers[pick_layer4].output
+                   ),
+                  name=backbone_type + '_extrator')(preprocess(x))
+        else:
+            model = Model(extractor.input,
+                  (extractor.layers[pick_layer1].output,
+                   extractor.layers[pick_layer2].output,
+                   extractor.layers[pick_layer3].output
+                   ),
+                  name=backbone_type + '_extrator')(preprocess(x))
+
+        return model
 
     return backbone
 
@@ -93,22 +115,42 @@ class ConvUnit(tf.keras.layers.Layer):
 
 class FPN(tf.keras.layers.Layer):
     """Feature Pyramid Network"""
-    def __init__(self, out_ch, wd, name='FPN', **kwargs):
+    def __init__(self, out_ch, wd, name='FPN', levels='3', **kwargs):
         super(FPN, self).__init__(name=name, **kwargs)
         act = 'relu'
         if (out_ch <= 64):
             act = 'lrelu'
 
+        self.levels = levels
+
         self.output1 = ConvUnit(f=out_ch, k=1, s=1, wd=wd, act=act)
         self.output2 = ConvUnit(f=out_ch, k=1, s=1, wd=wd, act=act)
         self.output3 = ConvUnit(f=out_ch, k=1, s=1, wd=wd, act=act)
+        self.output4 = ConvUnit(f=out_ch, k=1, s=1, wd=wd, act=act)
+        self.output5 = ConvUnit(f=out_ch, k=3, s=2, wd=wd, act=act)
         self.merge1 = ConvUnit(f=out_ch, k=3, s=1, wd=wd, act=act)
         self.merge2 = ConvUnit(f=out_ch, k=3, s=1, wd=wd, act=act)
+        self.merge3 = ConvUnit(f=out_ch, k=3, s=1, wd=wd, act=act)
+        self.merge4 = ConvUnit(f=out_ch, k=3, s=1, wd=wd, act=act)
 
     def call(self, x):
-        output1 = self.output1(x[0])  # [80, 80, out_ch]
-        output2 = self.output2(x[1])  # [40, 40, out_ch]
-        output3 = self.output3(x[2])  # [20, 20, out_ch]
+        output1 = self.output1(x[0])  # [160, 160, out_ch]
+        output2 = self.output2(x[1])  # [80, 80, out_ch]
+        output3 = self.output3(x[2])  # [40, 40, out_ch]
+
+        if self.levels == '5':
+            output4 = self.output4(x[3])  # [20, 20, out_ch]
+            output5 = self.output5(x[3])  # [10, 10, out_ch]
+
+            up_h, up_w = tf.shape(output4)[1], tf.shape(output4)[2]
+            up5 = tf.image.resize(output5, [up_h, up_w], method='nearest')
+            output4 = output4 + up5
+            output4 = self.merge4(output4)
+
+            up_h, up_w = tf.shape(output3)[1], tf.shape(output3)[2]
+            up4 = tf.image.resize(output4, [up_h, up_w], method='nearest')
+            output3 = output3 + up4
+            output3 = self.merge3(output3)
 
         up_h, up_w = tf.shape(output2)[1], tf.shape(output2)[2]
         up3 = tf.image.resize(output3, [up_h, up_w], method='nearest')
@@ -120,7 +162,12 @@ class FPN(tf.keras.layers.Layer):
         output1 = output1 + up2
         output1 = self.merge1(output1)
 
-        return output1, output2, output3
+        if self.levels == '5':
+            outputs = output1, output2, output3, output4, output5
+        else:
+            outputs = output1, output2, output3
+
+        return outputs
 
 
 class SSH(tf.keras.layers.Layer):
@@ -199,6 +246,106 @@ class ClassHead(tf.keras.layers.Layer):
         return tf.reshape(x, [-1, h * w * self.num_anchor, 2])
 
 
+class PadInputImage(tf.keras.layers.Layer):
+    def __init__(self, max_steps):
+        super(PadInputImage, self).__init__(name='PadInputImage')
+        self.max_steps = max_steps
+
+    def call(self, x):
+        img_h, img_w = tf.shape(x)[1], tf.shape(x)[2]
+
+        tmp_h = img_h % self.max_steps
+        img_pad_h = tf.cond(tmp_h > 0, lambda: self.max_steps - img_h % self.max_steps, lambda: 0)
+
+        tmp_w = img_w % self.max_steps
+        img_pad_w = tf.cond(tmp_w > 0, lambda: self.max_steps - img_w % self.max_steps, lambda: 0)
+
+        paddings = [[0, 0], [0, img_pad_h], [0, img_pad_w], [0, 0]]
+        x = tf.pad(x, paddings, mode='REFLECT', name=None)
+
+        pad_params = [img_h, img_w, img_pad_h, img_pad_w]
+
+        return x, pad_params
+
+
+class RecoverPadOutputs(tf.keras.layers.Layer):
+    def __init__(self):
+        super(RecoverPadOutputs, self).__init__(name='RecoverPadOutputs')
+
+    def call(self, x, pad_params):
+
+        img_h, img_w, img_pad_h, img_pad_w = pad_params
+
+        first_input = x[:, :14]
+        second_input = x[:, 14:]
+
+        recover_xy = tf.reshape(first_input, [-1, 7, 2]) * \
+                     [(img_pad_w + img_w) / img_w, (img_pad_h + img_h) / img_h]
+        first_input = tf.reshape(recover_xy, [-1, 14])
+
+        return tf.concat([first_input, second_input], axis=1)
+
+
+class ProcessOutput(tf.keras.layers.Layer):
+
+    def __init__(self):
+        super(ProcessOutput, self).__init__(name='ProcessOutput')
+
+    def call(self, outputs):
+
+        # img_h, img_w = self.img_shape[0], self.img_shape[1]
+        #
+        # if len(outputs) == 0:
+        #     return [], [], []
+
+        lmks = outputs[:, 4:14]
+
+        lmks = tf.reshape(lmks, (-1, 5, 2))
+        bboxes = outputs[:, :4]
+        confs = outputs[:, -1]
+
+        # bboxs = bboxs * [img_w, img_h, ]
+        #
+        # pred_boxes = []
+        # for box, lmk, conf in zip(bboxs, pred_lmks, confs):
+        #     x = int(box[0] * img_width_raw)
+        #     y = int(box[1] * img_height_raw)
+        #     w = int(box[2] * img_width_raw) - int(box[0] * img_width_raw)
+        #     h = int(box[3] * img_height_raw) - int(box[1] * img_height_raw)
+        #     pred_boxes.append([x, y, w, h, conf])
+        #
+        #     for lmk_region in lmk:
+        #         lmk_region[0] = lmk_region[0] * img_width_raw
+        #         lmk_region[1] = lmk_region[1] * img_height_raw
+        #
+        # pred_boxes = np.array(pred_boxes).astype('float')
+        return bboxes, confs, lmks
+
+def pred_to_outputs(cfg, output, inp_shape, iou_th=0.4, score_th=0.02):
+
+  bbox_regressions, landm_regressions, classifications = output
+
+  # only for batch size 1
+  preds = tf.concat(  # [bboxes, landms, landms_valid, conf]
+      [
+          bbox_regressions[0], landm_regressions[0],
+          tf.ones_like(classifications[0, :, 0][..., tf.newaxis]),
+          classifications[0, :, 1][..., tf.newaxis]
+      ], 1)
+  priors = prior_box_tf((inp_shape[1], inp_shape[2]), cfg['min_sizes'], cfg['steps'], cfg['clip'])
+  decode_preds = decode_tf(preds, priors, cfg['variances'])
+
+  selected_indices = tf.image.non_max_suppression(boxes=decode_preds[:, :4],
+                                                  scores=decode_preds[:, -1],
+                                                  max_output_size=tf.shape(decode_preds)[0],
+                                                  iou_threshold=iou_th,
+                                                  score_threshold=score_th)
+
+  out = tf.gather(decode_preds, selected_indices)
+
+  return out
+
+
 def RetinaFaceModel(cfg, training=False, iou_th=0.4, score_th=0.02,
                     name='RetinaFaceModel'):
     """Retina Face Model"""
@@ -207,13 +354,18 @@ def RetinaFaceModel(cfg, training=False, iou_th=0.4, score_th=0.02,
     out_ch = cfg['out_channel']
     num_anchor = len(cfg['min_sizes'][0])
     backbone_type = cfg['backbone_type']
+    levels = '3'
 
     # define model
-    x = inputs = Input([input_size, input_size, 3], name='input_image')
+    x = input_img = Input([input_size, input_size, 3], name='input_image')
+    inputs = input_img
 
-    x = Backbone(backbone_type=backbone_type)(x)
+    if not training:
+        padded_img, pad_params = PadInputImage(max(cfg['steps']))(x)
 
-    fpn = FPN(out_ch=out_ch, wd=wd)(x)
+    x = Backbone(backbone_type=backbone_type, levels=levels)(padded_img)
+
+    fpn = FPN(out_ch=out_ch, wd=wd, levels=levels)(x)
 
     features = [SSH(out_ch=out_ch, wd=wd, name=f'SSH_{i}')(f)
                 for i, f in enumerate(fpn)]
@@ -238,7 +390,7 @@ def RetinaFaceModel(cfg, training=False, iou_th=0.4, score_th=0.02,
             [bbox_regressions[0], landm_regressions[0],
              tf.ones_like(classifications[0, :, 0][..., tf.newaxis]),
              classifications[0, :, 1][..., tf.newaxis]], 1)
-        priors = prior_box_tf((tf.shape(inputs)[1], tf.shape(inputs)[2]),
+        priors = prior_box_tf((tf.shape(padded_img)[1], tf.shape(padded_img)[2]),
                               cfg['min_sizes'],  cfg['steps'], cfg['clip'])
         decode_preds = decode_tf(preds, priors, cfg['variances'])
 
@@ -250,5 +402,11 @@ def RetinaFaceModel(cfg, training=False, iou_th=0.4, score_th=0.02,
             score_threshold=score_th)
 
         out = tf.gather(decode_preds, selected_indices)
+
+        out = RecoverPadOutputs()(out, pad_params)
+
+        bboxes, confs, lmks = ProcessOutput()(out)
+
+        out = [bboxes, confs, lmks]
 
     return Model(inputs, out, name=name)
