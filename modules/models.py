@@ -342,9 +342,10 @@ def RetinaFaceModel(cfg, training=False, iou_th=0.4, score_th=0.02,
     inputs = input_img
 
     if not training:
-        padded_img, pad_params = PadInputImage(max(cfg['steps']))(x)
+        input_img, pad_params = PadInputImage(max(cfg['steps']))(x)
+        x = input_img
 
-    x = Backbone(backbone_type=backbone_type, levels=levels)(padded_img)
+    x = Backbone(backbone_type=backbone_type, levels=levels)(x)
 
     fpn = FPN(out_ch=out_ch, wd=wd, levels=levels)(x)
 
@@ -371,7 +372,7 @@ def RetinaFaceModel(cfg, training=False, iou_th=0.4, score_th=0.02,
             [bbox_regressions[0], landm_regressions[0],
              tf.ones_like(classifications[0, :, 0][..., tf.newaxis]),
              classifications[0, :, 1][..., tf.newaxis]], 1)
-        priors = prior_box_tf((tf.shape(padded_img)[1], tf.shape(padded_img)[2]),
+        priors = prior_box_tf((tf.shape(input_img)[1], tf.shape(input_img)[2]),
                               cfg['min_sizes'],  cfg['steps'], cfg['clip'])
         decode_preds = decode_tf(preds, priors, cfg['variances'])
 
