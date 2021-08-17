@@ -77,7 +77,7 @@ def train_retinaface(cfg):
         learning_rate=learning_rate, momentum=0.9, nesterov=True)
 
     # define losses function
-    multi_box_loss = MultiBoxLoss()
+    multi_box_loss = MultiBoxLoss(num_class=cfg['num_class'])
 
     # load checkpoint
     checkpoint_dir = os.path.join(cfg['output_path'], 'checkpoints', cfg['sub_name'])
